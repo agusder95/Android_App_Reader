@@ -52,4 +52,4 @@ Las dependencias de código se orientan hacia los contratos en `domain/repositor
 2. La implementación del repositorio consulta o actualiza las fuentes locales. Los adaptadores de datos resuelven el acceso a documentos SAF, la lectura CBZ y la persistencia.
 3. El repositorio devuelve modelos o resultados de dominio. El ViewModel actualiza el estado observable y Compose representa ese estado.
 
-**Pending:** elegir entre conservar el acceso al URI o copiar el archivo al almacenamiento de la app. La especificación de importación documentará la decisión y la recuperación cuando se pierda el acceso.
+La estrategia de acceso a CBZ mediante URI y respaldo temporal está documentada en [ADR-003](decisions/ADR-003-cbz-document-access.md).

@@ -6,7 +6,7 @@
 | Approved | Jetpack Compose y Material 3 | UI nativa, establecida en `AGENTS.md`. |
 | Approved | Storage Access Framework (SAF) | Selección de archivos locales, definida en el alcance del producto. |
 | Approved | MVVM + Repository + Clean Architecture simplificada | Arquitectura offline-first de módulo único aprobada en [ADR-002](decisions/ADR-002-package-architecture.md). |
-| Proposed | Room | Catálogo local y progreso por título. |
+| Approved para SPEC-003 | Room | Metadatos de biblioteca local. El progreso por título se definirá en su especificación. |
 | Proposed | DataStore | Preferencias de lectura. |
 | Proposed | Coil | Carga de portadas e imágenes de página. |
 | Proposed | Coroutines + Flow | Operaciones asíncronas y observación de estado. |
@@ -34,6 +34,18 @@
 
 ## Pendiente de evaluación
 
-- **Pending para la importación:** definir el mecanismo de acceso a CBZ desde SAF y validar la viabilidad de `ZipFile` con la estrategia elegida.
+- **Pending para la importación:** verificar en Android la viabilidad de las APIs ZIP estándar con el acceso SAF definido en [ADR-003](decisions/ADR-003-cbz-document-access.md) y los controles acotados del [plan de SPEC-002](../specs/002-cbz-import/plan.md#viabilidad-con-apis-estándar).
 
 Las dependencias requieren aprobación antes de incorporarse. Aprobar una tecnología en este documento fija su uso previsto. La autorización de incorporación corresponde a la tarea que la necesite.
+
+## Decisiones y candidatos de SPEC-003
+
+| Estado | Tecnología | Decisión para la biblioteca |
+| --- | --- | --- |
+| Approved | Kotlin 2.4.21, AGP 9.3.1, Gradle 9.5.0 y JDK 21 | Conservar la base aprobada en SPEC-001 y el módulo único `:app`. El catálogo y el Wrapper coinciden con las versiones de Kotlin, AGP y Gradle. T01 debe alinear y verificar el daemon con JDK 21 sin registrar rutas personales. |
+| Approved | APIs de Android y Compose Material 3 | Usar decodificación nativa para las miniaturas y la pantalla existente. Posponer Coil y Navigation Compose. |
+| Approved | Room 2.8.5 | Persistencia de metadatos. Exportar el esquema JSON inicial de forma reproducible. Admite el mínimo API 23. [Notas de Room](https://developer.android.com/jetpack/androidx/releases/room). |
+| Candidato autorizado | KSP2 2.3.12 | Sujeto a T03 con Kotlin integrado y Room 2.8.5. Generar el DAO y exportar el esquema. Ante incompatibilidad, detenerse y solicitar autorización antes de cambiar la versión. Evitar 2.3.13 por la regresión en ejecuciones concurrentes. [KSP 2.3.12](https://github.com/google/ksp/releases/tag/2.3.12) · [Regresión de KSP 2.3.13](https://github.com/google/ksp/releases/tag/2.3.13). |
+| Approved | JUnit, AndroidX Test y `room-testing` 2.8.5 | JUnit en `testDebugUnitTest` y `AndroidJUnitRunner` en `connectedDebugAndroidTest`. T01 selecciona y documenta versiones compatibles de JUnit y AndroidX Test antes de incorporarlas y preserva las regresiones de SPEC-002. [AndroidJUnitRunner](https://developer.android.com/training/testing/instrumented-tests/androidx-test-libraries/runner). |
+
+Para T01 se seleccionaron `junit:junit:4.13.2`, `androidx.test:runner:1.7.0` y `androidx.test.ext:junit:1.3.0`. `AndroidJUnitRunner` se distribuye con `androidx.test:runner`. La línea estable de AndroidX Test seleccionada admite API 21 y cubre el mínimo API 23 de Sumi. Su compatibilidad efectiva se verifica al resolver y compilar la variante instrumentada. `room-testing` se incorpora en T03. [JUnit 4](https://junit.org/junit4/dependency-info.html) · [Versiones de AndroidX Test](https://developer.android.com/jetpack/androidx/releases/test).

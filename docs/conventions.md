@@ -5,6 +5,8 @@
 - Usá cuatro espacios. Nombrá clases y tipos en `PascalCase`, funciones y propiedades en `lowerCamelCase`, y constantes de compilación en `UPPER_SNAKE_CASE`. Usá identificadores en inglés y paquetes en minúsculas.
 - Nombrá los composables que emiten UI en `PascalCase`, por ejemplo `LibraryScreen`. Pasá estado y callbacks explícitos a los composables de presentación. Mantené el acceso a repositorios en el ViewModel.
 - Representá los estados relevantes de pantalla, como carga, contenido, vacío y error. Ubicá los textos visibles en recursos de Android.
+- Usá los roles de color y los estilos tipográficos de `MaterialTheme` en los composables de Sumi. [Material 3 en Compose](https://developer.android.com/develop/ui/compose/designsystems/material3)
+- Asegurá que cada acción tenga una etiqueta accesible y un área táctil de al menos 48 dp. Reutilizá las etiquetas que Compose ya expone y agregá una descripción localizada a los íconos informativos o de acción que carezcan de una etiqueta. Usá `contentDescription = null` en gráficos decorativos. [Accesibilidad en Compose](https://developer.android.com/develop/ui/compose/accessibility/api-defaults)
 
 ## Ubicación y nombres de clases
 
