@@ -1,6 +1,7 @@
 package com.agustin.sumi.data.local.document
 
 import com.agustin.sumi.domain.model.CbzImportError
+import java.io.Closeable
 import java.io.File
 import java.io.InputStream
 import java.util.UUID
@@ -36,34 +37,37 @@ internal class TemporaryCbzStore(
         checkCancellation: () -> Unit,
         expectedLength: Long? = null,
         read: (File, Long) -> T,
-    ): T {
+    ): T = copy(input, checkCancellation, expectedLength).use {
+        read(it.file, it.length).also { checkCancellation() }
+    }
+
+    /** The returned lease keeps the copy in the shared quota and protects it from orphan recovery. */
+    fun copy(input: InputStream, checkCancellation: () -> Unit, expectedLength: Long? = null): Copy {
         var temporary: File? = null
         try {
             val written = input.use {
                 checkCancellation()
-                val otherBytes = ownedBytes()
-                val remainingBudget = totalBudget - otherBytes
-                if (remainingBudget <= 0 || (expectedLength != null && expectedLength > remainingBudget)) {
-                    throw DocumentAccessException(CbzImportError.RESOURCE_LIMIT_EXCEEDED)
-                }
-                val file = createTemporary(expectedLength)
+                val (file, remainingBudget) = reserveTemporary(expectedLength)
                 temporary = file
                 copyInto(input, file, minOf(maxBytes, remainingBudget), checkCancellation)
             }
             checkCancellation()
-            return read(checkNotNull(temporary), written).also { checkCancellation() }
-        } finally {
-            temporary?.let { file ->
-                synchronized(activeFiles) {
-                    activeFiles.remove(file)
-                    deleteTemporary(file)
-                }
-            }
+            val file = checkNotNull(temporary)
+            return Copy(file, written) { releaseTemporary(file) }
+        } catch (failure: Throwable) {
+            temporary?.let(::releaseTemporary)
+            throw failure
         }
     }
 
-    private fun createTemporary(expectedLength: Long?): File =
+    private fun reserveTemporary(expectedLength: Long?): Pair<File, Long> =
         synchronized(activeFiles) {
+            val remainingBudget = totalBudget - ownedBytes()
+            if (activeFiles.any { it.parentFile == directory } || remainingBudget <= 0 ||
+                (expectedLength != null && expectedLength > minOf(remainingBudget, maxBytes))
+            ) {
+                throw DocumentAccessException(CbzImportError.RESOURCE_LIMIT_EXCEEDED)
+            }
             if (!directory.mkdirs() && !directory.isDirectory) {
                 throw DocumentAccessException(CbzImportError.IO_FAILURE)
             }
@@ -71,14 +75,22 @@ internal class TemporaryCbzStore(
             if (available <= 0 || (expectedLength != null && expectedLength > available)) {
                 throw DocumentAccessException(CbzImportError.INSUFFICIENT_SPACE)
             }
-            File(directory, "import-${UUID.randomUUID()}.cbz.part").also {
+            val file = File(directory, "import-${UUID.randomUUID()}.cbz.part").also {
                 if (!it.createNewFile()) throw DocumentAccessException(CbzImportError.IO_FAILURE)
                 activeFiles.add(it)
             }
+            file to remainingBudget
         }
 
-    private fun ownedBytes(): Long = synchronized(activeFiles) {
+    private fun releaseTemporary(file: File) = synchronized(activeFiles) {
+        if (activeFiles.remove(file)) deleteTemporary(file)
+    }
+
+    private fun ownedBytes(): Long =
         directory.listFiles().orEmpty().filter { it.isFile && temporaryName.matches(it.name) }.sumOf(File::length)
+
+    class Copy(val file: File, val length: Long, private val release: () -> Unit) : Closeable {
+        override fun close() = release()
     }
 
     private fun copyInto(input: InputStream, file: File, limit: Long, checkCancellation: () -> Unit): Long {

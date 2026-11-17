@@ -1,5 +1,6 @@
 package com.agustin.sumi.data.local.database
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -27,6 +28,8 @@ internal data class LibraryEntryEntity(
     val titleOrderKey: ByteArray,
     val addedAtEpochMillis: Long,
     val coverPageId: String?,
+    val lastReadPageId: String? = null,
+    @ColumnInfo(defaultValue = "'LTR'") val readingDirection: String = "LTR",
 ) {
     fun toDomain(): LibraryEntry = LibraryEntry(
         id = LibraryEntryId(id),

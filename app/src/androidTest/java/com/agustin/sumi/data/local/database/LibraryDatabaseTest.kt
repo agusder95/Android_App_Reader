@@ -183,7 +183,7 @@ class LibraryDatabaseTest {
         }
     }
 
-    private fun open(name: String) = Room.databaseBuilder(context, LibraryDatabase::class.java, name).build()
+    private fun open(name: String) = LibraryDatabase.open(context, name)
 
     private fun inMemory() = Room.inMemoryDatabaseBuilder(context, LibraryDatabase::class.java).build()
 

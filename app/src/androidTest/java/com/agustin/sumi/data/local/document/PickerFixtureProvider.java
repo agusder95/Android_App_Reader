@@ -2,6 +2,7 @@ package com.agustin.sumi.data.local.document;
 
 import android.database.Cursor;
 import android.database.MatrixCursor;
+import android.graphics.Bitmap;
 import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract.Document;
@@ -21,6 +22,7 @@ public final class PickerFixtureProvider extends DocumentsProvider {
     static final String ZIP = "two.zip";
     static final String GENERIC = "generic.cbz";
     static final String UNAVAILABLE = "unavailable.zip";
+    static final String READER_CBZ = "reader.cbz";
     static final String AUTHORITY = "com.agustin.sumi.test.picker";
     private static final String ROOT = "fixture-root";
     static final String TREE_ROOT = "fixture-tree";
@@ -37,7 +39,7 @@ public final class PickerFixtureProvider extends DocumentsProvider {
     private static final String DENIED = "denied-folder";
     private static final String INVALID = "invalid.cbz";
     private static final String DEPTH_PREFIX = "depth-";
-    private static final String[] FILES = {CBZ, ZIP, GENERIC, UNAVAILABLE};
+    private static final String[] FILES = {CBZ, ZIP, GENERIC, UNAVAILABLE, READER_CBZ};
     private static final String[] ROOT_COLUMNS = {
         Root.COLUMN_ROOT_ID, Root.COLUMN_DOCUMENT_ID, Root.COLUMN_FLAGS,
         Root.COLUMN_TITLE, Root.COLUMN_MIME_TYPES
@@ -131,6 +133,7 @@ public final class PickerFixtureProvider extends DocumentsProvider {
             case HIDDEN:
             case DENIED: mime = Document.MIME_TYPE_DIR; break;
             case CBZ:
+            case READER_CBZ:
             case TREE_CBZ:
             case INVALID:
             case ".hidden.cbz":
@@ -159,6 +162,7 @@ public final class PickerFixtureProvider extends DocumentsProvider {
         int pages;
         switch (documentId) {
             case CBZ:
+            case READER_CBZ:
             case TREE_CBZ:
             case OUTSIDE:
             case GENERIC: pages = 1; break;
@@ -171,8 +175,20 @@ public final class PickerFixtureProvider extends DocumentsProvider {
         File file = new File(Objects.requireNonNull(getContext()).getCacheDir(), documentId);
         try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(file))) {
             for (int i = 1; i <= pages; i++) {
-                zip.putNextEntry(new ZipEntry("page" + i + ".jpg"));
-                zip.write(new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 1});
+                boolean readerFixture = READER_CBZ.equals(documentId);
+                zip.putNextEntry(new ZipEntry("page" + i + (readerFixture ? ".png" : ".jpg")));
+                if (readerFixture) {
+                    Bitmap bitmap = Bitmap.createBitmap(32, 24, Bitmap.Config.ARGB_8888);
+                    try {
+                        if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, zip)) {
+                            throw new IOException("Cannot encode reader fixture");
+                        }
+                    } finally {
+                        bitmap.recycle();
+                    }
+                } else {
+                    zip.write(new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 1});
+                }
                 zip.closeEntry();
             }
         } catch (IOException error) {

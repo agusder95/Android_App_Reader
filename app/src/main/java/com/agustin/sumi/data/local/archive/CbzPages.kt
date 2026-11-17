@@ -29,30 +29,47 @@ internal fun collectCbzPages(
     checkCancellation: () -> Unit,
     onFirstPage: ((ValidatedZipEntry, CbzPageDescriptor) -> Unit)? = null,
 ): List<CbzPageDescriptor> {
-    val paths = EntryPaths(channel)
-    val ordered = entries.sortedWith { left, right ->
-        checkCancellation()
-        CbzPagePathOrder.compare(paths.get(left.name), paths.get(right.name))
-    }
     val digest = MessageDigest.getInstance("SHA-256")
     val pages = ArrayList<CbzPageDescriptor>()
-    var previousPath: String? = null
-    for (entry in ordered) {
-        checkCancellation()
-        val path = paths.get(entry.name)
-        if (path.isEmpty() && !entry.directory) zipFailure(CbzImportError.UNSAFE_ENTRY_PATH)
-        if (path == previousPath) zipFailure(CbzImportError.DUPLICATE_ENTRY_PATH)
-        previousPath = path
-        if (entry.directory) continue
-        val format = identifyCbzPageFormat(entry.prefix) ?: continue
-        val id = CbzPageId(digest.digest(path.encodeToByteArray()).toHexString())
-        val page = CbzPageDescriptor(id, format)
-        if (pages.isEmpty()) onFirstPage?.invoke(entry, page)
-        pages.add(page)
+    forEachOrderedZipEntry(channel, entries, ValidatedZipEntry::name, ValidatedZipEntry::directory, checkCancellation) { entry, path ->
+        if (!entry.directory) {
+            identifyCbzPageFormat(entry.prefix)?.let { format ->
+                val page = CbzPageDescriptor(digest.pageId(path), format)
+                if (pages.isEmpty()) onFirstPage?.invoke(entry, page)
+                pages.add(page)
+            }
+        }
     }
     checkCancellation()
     if (pages.isEmpty()) zipFailure(CbzImportError.NO_SUPPORTED_IMAGES)
     return pages
+}
+
+internal fun MessageDigest.pageId(path: String): CbzPageId =
+    CbzPageId(digest(path.encodeToByteArray()).toHexString())
+
+internal fun <T> forEachOrderedZipEntry(
+    channel: FileChannel,
+    entries: List<T>,
+    name: (T) -> ZipEntryName,
+    directory: (T) -> Boolean,
+    checkCancellation: () -> Unit,
+    visit: (T, String) -> Unit,
+) {
+    val paths = EntryPaths(channel)
+    val ordered = entries.sortedWith { left, right ->
+        checkCancellation()
+        CbzPagePathOrder.compare(paths.get(name(left)), paths.get(name(right)))
+    }
+    var previousPath: String? = null
+    for (entry in ordered) {
+        checkCancellation()
+        val path = paths.get(name(entry))
+        if (path.isEmpty() && !directory(entry)) zipFailure(CbzImportError.UNSAFE_ENTRY_PATH)
+        if (path == previousPath) zipFailure(CbzImportError.DUPLICATE_ENTRY_PATH)
+        previousPath = path
+        visit(entry, path)
+    }
 }
 
 private class EntryPaths(private val channel: FileChannel) {

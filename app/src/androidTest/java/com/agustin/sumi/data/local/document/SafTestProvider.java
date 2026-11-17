@@ -5,6 +5,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.database.MatrixCursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
@@ -34,6 +35,7 @@ public final class SafTestProvider extends ContentProvider {
     private final ConcurrentHashMap<String, AtomicInteger> counts = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, PipeGate> gates = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, byte[]> covers = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> coverRevisions = new ConcurrentHashMap<>();
     private volatile boolean regularMissing;
     private volatile boolean regularTemporarilyUnavailable;
 
@@ -61,6 +63,7 @@ public final class SafTestProvider extends ContentProvider {
         switch (method) {
             case "set-cover":
                 covers.put(arg, Objects.requireNonNull(Objects.requireNonNull(extras).getByteArray("archive")));
+                coverRevisions.computeIfAbsent(arg, ignored -> new AtomicInteger()).incrementAndGet();
                 break;
             case "persistable":
                 context.grantUriPermission(caller, uri, read | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -108,7 +111,7 @@ public final class SafTestProvider extends ContentProvider {
     private Bundle pickerPermission(String caller, String method, String id) {
         boolean tree = PickerFixtureProvider.isFixtureTree(id);
         if (!tree && !Arrays.asList(PickerFixtureProvider.TREE_CBZ, PickerFixtureProvider.TREE_ZIP,
-                PickerFixtureProvider.OUTSIDE).contains(id)) {
+                PickerFixtureProvider.OUTSIDE, PickerFixtureProvider.READER_CBZ).contains(id)) {
             throw new IllegalArgumentException("Unknown picker fixture");
         }
         Uri uri = tree
@@ -245,7 +248,23 @@ public final class SafTestProvider extends ContentProvider {
 
     @Override
     public Cursor query(Uri uri, String[] projection, String selection, String[] args, String sortOrder) {
-        return null;
+        String name = uri.getLastPathSegment();
+        if (name == null || projection == null) return null;
+        byte[] archive = covers.get(name);
+        AtomicInteger revision = coverRevisions.get(name);
+        if (archive == null || revision == null) return null;
+        MatrixCursor cursor = new MatrixCursor(projection);
+        MatrixCursor.RowBuilder row = cursor.newRow();
+        for (String column : projection) {
+            if (DocumentsContract.Document.COLUMN_SIZE.equals(column)) {
+                row.add((long) archive.length);
+            } else if (DocumentsContract.Document.COLUMN_LAST_MODIFIED.equals(column)) {
+                row.add((long) revision.get());
+            } else {
+                row.add(null);
+            }
+        }
+        return cursor;
     }
 
     @Override
