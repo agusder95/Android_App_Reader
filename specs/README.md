@@ -23,4 +23,4 @@ La creación de estos documentos inicia la etapa `Draft`. La revisión del borra
 - [SPEC-001 — Configuración inicial del proyecto Android](001-project-setup/spec.md) · **Approved**
 - [SPEC-002 — Importación de archivos CBZ](002-cbz-import/spec.md) · **Validated**
 - [SPEC-003 — Biblioteca local de Sumi](003-local-library/spec.md) · **Validated**
-- [SPEC-004 — Lector visual de páginas CBZ](004-cbz-reader/spec.md) · **Draft**
+- [SPEC-004 — Lector visual de páginas CBZ](004-cbz-reader/spec.md) · **Validated**

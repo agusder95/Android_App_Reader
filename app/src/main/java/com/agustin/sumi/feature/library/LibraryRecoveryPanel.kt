@@ -72,10 +72,18 @@ internal fun LibraryRecoveryPanel(
     onRemove: (LibraryEntryId) -> Unit,
     modifier: Modifier = Modifier,
     onReselectTree: (LibraryEntryId) -> Unit = {},
+    onOpen: ((LibraryEntryId) -> Unit)? = null,
     importControls: @Composable () -> Unit,
 ) {
     val gridState = rememberLazyGridState()
-    LaunchedEffect(state.offset, state.order, state.searchText) { gridState.scrollToItem(0) }
+    val queryKey = "${state.offset}:${state.order.name}:${state.searchText}"
+    var previousQuery by rememberSaveable { mutableStateOf(queryKey) }
+    LaunchedEffect(queryKey) {
+        if (previousQuery != queryKey) {
+            previousQuery = queryKey
+            gridState.scrollToItem(0)
+        }
+    }
     var confirmationId by rememberSaveable { mutableStateOf<Long?>(null) }
     val confirmation = state.entries.firstOrNull { it.entry.id.value == confirmationId }?.entry
     val feedback = when {
@@ -150,6 +158,15 @@ internal fun LibraryRecoveryPanel(
                 key(item.entry, item.access, visible) { CoverPreview(item, covers, visible) }
                 Column(Modifier.padding(8.dp)) {
                     Text(item.entry.title.value, style = MaterialTheme.typography.titleMedium)
+                    if (onOpen != null) {
+                        TextButton(
+                            onClick = { onOpen(item.entry.id) },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            enabled = enabled,
+                        ) {
+                            Text(stringResource(R.string.library_open_reader, item.entry.title.value))
+                        }
+                    }
                     when (item.access) {
                         LibraryAccessStatus.MISSING, LibraryAccessStatus.PERMISSION_REVOKED -> {
                             val reason = if (item.access == LibraryAccessStatus.MISSING) {

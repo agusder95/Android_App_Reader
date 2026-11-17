@@ -31,13 +31,19 @@ import androidx.compose.ui.unit.dp
 import com.agustin.sumi.R
 import com.agustin.sumi.domain.model.CbzImportError
 import com.agustin.sumi.domain.model.CbzSourceReference
+import com.agustin.sumi.domain.model.LibraryEntryId
 import com.agustin.sumi.domain.repository.LibraryCoverSource
 import com.agustin.sumi.domain.usecase.BATCH_CANDIDATE_LIMIT
 import com.agustin.sumi.domain.usecase.LibraryBatchProgress
 import com.agustin.sumi.domain.usecase.LibraryBatchStatus
 
 @Composable
-internal fun LibraryRoute(viewModel: LibraryViewModel, recovery: LibraryRecoveryViewModel, covers: LibraryCoverSource<Bitmap>) {
+internal fun LibraryRoute(
+    viewModel: LibraryViewModel,
+    recovery: LibraryRecoveryViewModel,
+    covers: LibraryCoverSource<Bitmap>,
+    onOpen: (LibraryEntryId) -> Unit,
+) {
     val state by viewModel.state.collectAsState()
     val recoveryState by recovery.state.collectAsState()
     val picker = rememberLauncherForActivityResult(OpenCbzDocument) { uri ->
@@ -66,6 +72,7 @@ internal fun LibraryRoute(viewModel: LibraryViewModel, recovery: LibraryRecovery
         onOrder = recovery::selectOrder,
         onRetry = recovery::refresh,
         onPage = recovery::changePage,
+        onOpen = onOpen,
         onRemove = recovery::remove,
         onReselectTree = { id ->
             if (recovery.beginTreeReselection(id)) {

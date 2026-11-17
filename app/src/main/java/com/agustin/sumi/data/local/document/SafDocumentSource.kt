@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.os.StatFs
+import android.provider.DocumentsContract.Document
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
@@ -107,7 +108,60 @@ internal class SafDocumentSource(context: Context) {
     suspend fun <T> withDocument(
         source: CbzSourceReference,
         allowDirectAccess: Boolean = true,
+        read: suspend (OpenedCbzDocument) -> T,
+    ): T = withOpenedDocument(source, allowDirectAccess, read) { copy ->
+        copy.use { read(OpenedCbzDocument.Temporary(it.file, it.length)) }
+    }
+
+    /** Transfers only the private copy to the reader. Direct descriptors remain scoped to [read]. */
+    suspend fun <T> prepareReaderDocument(
+        source: CbzSourceReference,
+        allowDirectAccess: Boolean,
         read: (OpenedCbzDocument) -> T,
+    ): PreparedReaderDocument<T> {
+        var retained: TemporaryCbzStore.Copy? = null
+        try {
+            val value = withOpenedDocument(source, allowDirectAccess, read = { read(it) }) { copy ->
+                retained = copy
+                read(OpenedCbzDocument.Temporary(copy.file, copy.length))
+            }
+            return PreparedReaderDocument(value, retained)
+        } catch (failure: Throwable) {
+            retained?.let { withContext(Dispatchers.IO + NonCancellable) { it.close() } }
+            throw failure
+        }
+    }
+
+    /** A provider may omit both fields. A live access check remains necessary. */
+    suspend fun readerRevision(source: CbzSourceReference): DocumentRevision = documentIo {
+        val uri = documentUri(source)
+        requirePersistedReadPermission(uri)
+        val version = try {
+            resolver.query(uri, arrayOf(Document.COLUMN_SIZE, Document.COLUMN_LAST_MODIFIED), null, null, null)
+                ?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    fun field(column: String): Long? {
+                        val index = cursor.getColumnIndex(column)
+                        return if (index >= 0 && !cursor.isNull(index)) cursor.getLong(index) else null
+                    }
+                    DocumentRevision(
+                        field(Document.COLUMN_SIZE)?.takeIf { it >= 0 },
+                        field(Document.COLUMN_LAST_MODIFIED)?.takeIf { it > 0 },
+                    )
+                }
+        } catch (_: IllegalArgumentException) {
+            null // The provider does not implement this metadata projection.
+        } catch (_: UnsupportedOperationException) {
+            null
+        }
+        version ?: DocumentRevision(null, null)
+    }
+
+    private suspend fun <T> withOpenedDocument(
+        source: CbzSourceReference,
+        allowDirectAccess: Boolean,
+        read: suspend (OpenedCbzDocument.Direct) -> T,
+        onCopy: suspend (TemporaryCbzStore.Copy) -> T,
     ): T = documentIo {
         val cancellation = currentCoroutineContext()
         val uri = documentUri(source)
@@ -125,9 +179,7 @@ internal class SafDocumentSource(context: Context) {
         if (descriptor == null) {
             val input = resolver.openInputStream(uri)
                 ?: throw DocumentAccessException(CbzImportError.IO_FAILURE)
-            temporaryStore.withCopy(input, cancellation::ensureActive) { file, length ->
-                read(OpenedCbzDocument.Temporary(file, length))
-            }
+            onCopy(temporaryStore.copy(input, cancellation::ensureActive))
         } else {
             descriptor.use {
                 cancellation.ensureActive()
@@ -141,9 +193,7 @@ internal class SafDocumentSource(context: Context) {
                     }
                 } else {
                     val input = ParcelFileDescriptor.AutoCloseInputStream(descriptor)
-                    temporaryStore.withCopy(input, cancellation::ensureActive, length) { file, copied ->
-                        read(OpenedCbzDocument.Temporary(file, copied))
-                    }
+                    onCopy(temporaryStore.copy(input, cancellation::ensureActive, length))
                 }
             }
         }.also { cancellation.ensureActive() }
@@ -207,4 +257,12 @@ internal class SafDocumentSource(context: Context) {
             )
         }
     }
+}
+
+internal data class PreparedReaderDocument<T>(val value: T, val copy: TemporaryCbzStore.Copy?)
+
+internal data class DocumentRevision(val size: Long?, val modifiedAt: Long?) {
+    fun differsFrom(other: DocumentRevision): Boolean =
+        (size != null && other.size != null && size != other.size) ||
+            (modifiedAt != null && other.modifiedAt != null && modifiedAt != other.modifiedAt)
 }

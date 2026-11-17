@@ -1,6 +1,6 @@
 # SPEC-004 — Lector visual de páginas CBZ
 
-**Estado.** `Draft`. Sin aprobación ni autorización de implementación. Depende de [SPEC-002](../002-cbz-import/spec.md) y [SPEC-003](../003-local-library/spec.md), ambas `Validated`.
+**Estado.** `Validated` el 17 de noviembre de 2026, por autorización explícita de cierre en el mensaje «Autorizo validar T08 y cerrar SPEC-004, condicionado a confirmar que toda la evidencia obligatoria cumple los criterios aprobados». La revisión final confirmó T01–T08 y CA-01 a CA-10. Se conservan las verificaciones adicionales pendientes registradas en `tasks.md`. Depende de [SPEC-002](../002-cbz-import/spec.md) y [SPEC-003](../003-local-library/spec.md), ambas `Validated`.
 
 ## Objetivo y alcance
 
@@ -31,7 +31,7 @@ Incluye errores recuperables, permisos revocados, recursos acotados, cancelació
 | ID | Resultado verificable |
 | --- | --- |
 | CA-01 | Desde una entrada validada de biblioteca, abrir el lector sin red, mostrar título y primera/última posición válida; regresar a biblioteca conserva su estado. Un ID inexistente ofrece error recuperable. |
-| CA-02 | Un CBZ con nombres mixtos y carpetas internas presenta las páginas en el orden de SPEC-002. Abrir el libro consulta el índice sin expandir cada imagen; pedir una página lee sus bytes reales y verifica el CRC. Contadores de lectura prueban que páginas no solicitadas no se descomprimen. |
+| CA-02 | Un CBZ con nombres mixtos y carpetas internas presenta las páginas en el orden de SPEC-002. Al abrir, validar la estructura ZIP e inspeccionar como máximo 12 bytes descomprimidos por entrada candidata, solo para identificar JPG, PNG o WebP por firma. Medir por separado los bytes descomprimidos y los bytes comprimidos leídos. La lectura integral, la comprobación del tamaño real y el CRC corresponden únicamente a la página solicitada. |
 | CA-03 | Con un CBZ grande se lee/decodifica solo la página solicitada y no hay precarga. El presupuesto de bitmaps tiene objetivo de 32 MiB y no supera el techo provisional de 64 MiB; al alcanzar el techo se reduce el muestreo y se libera la página reemplazada. Registrar picos en API 23/37. |
 | CA-04 | LTR es la dirección inicial; cambiar a RTL se conserva por libro y cambia el sentido de gesto horizontal sin invertir el orden natural. Botones anterior/siguiente accesibles respetan la secuencia. El zoom ofrece ajuste a pantalla y escala hasta 3x, con controles accesibles. |
 | CA-05 | Confirmar una página, cerrar/reabrir pantalla y proceso, y reanudarla. Otro libro conserva posición y dirección independientes. Una posición inexistente se corrige sin excepción ni pérdida del libro. La migración desde Room v1 conserva entradas, IDs y concesiones y crea progreso/dirección predeterminados. |
@@ -43,4 +43,4 @@ Incluye errores recuperables, permisos revocados, recursos acotados, cancelació
 
 ## Decisiones pendientes
 
-Las alternativas técnicas pendientes figuran en [plan.md](plan.md): estrategia de acceso individual en proveedores SAF secuenciales, política de temporales por sesión y confirmación del techo de 64 MiB con mediciones. Resolverlas antes de `Approved`. El alcance funcional de SPEC-004 ya propone página única, LTR inicial, RTL por libro, zoom hasta 3x y progreso básico; lo pospuesto queda para SPEC-005.
+Las verificaciones técnicas obligatorias figuran en [plan.md](plan.md) y [tasks.md): acceso individual, tope de 12 bytes descomprimidos por candidato al indexar y CRC de la página solicitada (T02), techo de memoria provisional medido (T03), SAF secuencial y cuota temporal (T02) y migración Room v1→v2 no destructiva (T04). La aprobación está condicionada a estas pruebas. El alcance funcional es una página, LTR inicial, RTL por libro, zoom hasta 3x y progreso básico. Lo pospuesto queda para SPEC-005.

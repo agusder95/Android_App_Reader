@@ -12,7 +12,10 @@ import java.io.SequenceInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
+import java.security.MessageDigest
 import java.util.zip.CRC32
+import java.util.zip.DataFormatException
+import java.util.zip.Inflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipException
 import java.util.zip.ZipFile
@@ -46,6 +49,102 @@ internal data class FirstCbzPage(
  * validation on its I/O context. Entry names can be read from that same source.
  */
 internal class CbzArchiveReader(private val limits: ZipValidationLimits = ZipValidationLimits()) {
+    /** Parses ZIP records without opening a decoder for any entry. */
+    fun index(channel: FileChannel, check: () -> Unit): CbzArchiveIndex {
+        val length = channel.size()
+        val directory = readStructure(channel, length, check)
+        var remaining = limits.expandedBytes
+        val digest = MessageDigest.getInstance("SHA-256")
+        val entries = ArrayList<IndexedCbzEntry>(directory.entries.size)
+        forEachOrderedZipEntry(
+            channel, directory.entries, ZipStructure.Entry::name, ZipStructure.Entry::directory, check,
+        ) { entry, path ->
+            if (entry.expanded > remaining) zipFailure(CbzImportError.RESOURCE_LIMIT_EXCEEDED)
+            remaining -= entry.expanded
+            entries.add(IndexedCbzEntry(digest.pageId(path), entry))
+        }
+        check()
+        requireZip(channel.size() == length)
+        return CbzArchiveIndex(length, entries)
+    }
+
+    fun openPage(channel: FileChannel, entry: IndexedCbzEntry, check: () -> Unit): VerifiedCbzPage {
+        requireZip(!entry.structure.directory)
+        if (entry.structure.expanded > limits.imageBytes) zipFailure(CbzImportError.RESOURCE_LIMIT_EXCEEDED)
+        val input = openStreamingEntry(channel, entry.structure, check)
+        try {
+            requireZip(input.nextEntry != null)
+            return VerifiedCbzPage(input, entry.structure, check)
+        } catch (failure: Throwable) {
+            input.close()
+            throw failure
+        }
+    }
+
+    /** Probes signatures using bounded output windows, without driving the decoder to EOF. */
+    fun identifyPages(
+        channel: FileChannel,
+        index: CbzArchiveIndex,
+        check: () -> Unit,
+        onProbe: ((CbzPageProbe) -> Unit)? = null,
+    ): List<CbzPageDescriptor> {
+        val pages = ArrayList<CbzPageDescriptor>()
+        val compressed = ByteArray(8192)
+        for ((id, entry) in index.entries) {
+            check()
+            if (entry.directory || entry.expanded == 0L) continue
+            val prefix = ByteArray(minOf(entry.expanded, ZIP_ENTRY_PREFIX_BYTES.toLong()).toInt())
+            val packedRead = if (entry.method == ZIP_STORED) {
+                channel.readZipFully(entry.dataOffset, ByteBuffer.wrap(prefix))
+                prefix.size.toLong()
+            } else {
+                inflatePrefix(channel, entry, prefix, compressed, check)
+            }
+            check()
+            onProbe?.invoke(CbzPageProbe(id, prefix.size, packedRead))
+            identifyCbzPageFormat(prefix)?.let { pages.add(CbzPageDescriptor(id, it)) }
+        }
+        check()
+        requireZip(channel.size() == index.length)
+        if (pages.isEmpty()) zipFailure(CbzImportError.NO_SUPPORTED_IMAGES)
+        return pages
+    }
+
+    private fun inflatePrefix(
+        channel: FileChannel,
+        entry: ZipStructure.Entry,
+        prefix: ByteArray,
+        compressed: ByteArray,
+        check: () -> Unit,
+    ): Long {
+        val inflater = Inflater(true)
+        var expanded = 0
+        var packed = 0L
+        try {
+            while (expanded < prefix.size) {
+                check()
+                if (inflater.needsInput() && packed < entry.packed) {
+                    val count = minOf(compressed.size.toLong(), entry.packed - packed).toInt()
+                    channel.readZipFully(entry.dataOffset + packed, ByteBuffer.wrap(compressed, 0, count))
+                    packed += count
+                    inflater.setInput(compressed, 0, count)
+                }
+                val produced = inflater.inflate(prefix, expanded, prefix.size - expanded)
+                expanded += produced
+                if (inflater.finished()) {
+                    requireZip(expanded.toLong() == entry.expanded && inflater.bytesRead == entry.packed)
+                    break
+                }
+                requireZip(produced > 0 || (inflater.needsInput() && packed < entry.packed))
+            }
+        } catch (_: DataFormatException) {
+            zipFailure(CbzImportError.CORRUPT_ARCHIVE)
+        } finally {
+            inflater.end()
+        }
+        return packed
+    }
+
     fun readPages(channel: FileChannel, checkCancellation: () -> Unit): List<CbzPageDescriptor> =
         readPages(channel, null, checkCancellation)
 
@@ -102,12 +201,8 @@ internal class CbzArchiveReader(private val limits: ZipValidationLimits = ZipVal
         isImage: (ByteArray) -> Boolean,
         checkCancellation: () -> Unit,
     ): List<ValidatedZipEntry> {
-        checkCancellation()
         val length = channel.size()
-        if (length == 0L) zipFailure(CbzImportError.EMPTY_FILE)
-        if (length > limits.archiveBytes) zipFailure(CbzImportError.RESOURCE_LIMIT_EXCEEDED)
-        val directory = ZipStructure(channel, length, limits.entries, checkCancellation).read()
-        if (directory.entries.isEmpty()) zipFailure(CbzImportError.EMPTY_ARCHIVE)
+        val directory = readStructure(channel, length, checkCancellation)
         val scan = EntryScan(limits, isImage, checkCancellation)
         val results = try {
             val indexed = privateCopy?.let { openBoundedIndex(it, directory) }
@@ -134,6 +229,15 @@ internal class CbzArchiveReader(private val limits: ZipValidationLimits = ZipVal
         checkCancellation()
         requireZip(channel.size() == length)
         return results
+    }
+
+    private fun readStructure(channel: FileChannel, length: Long, check: () -> Unit): ZipStructure.Directory {
+        check()
+        if (length == 0L) zipFailure(CbzImportError.EMPTY_FILE)
+        if (length > limits.archiveBytes) zipFailure(CbzImportError.RESOURCE_LIMIT_EXCEEDED)
+        val directory = ZipStructure(channel, length, limits.entries, check).read()
+        if (directory.entries.isEmpty()) zipFailure(CbzImportError.EMPTY_ARCHIVE)
+        return directory
     }
 
     private fun openBoundedIndex(file: File, directory: ZipStructure.Directory): ZipFile? {
